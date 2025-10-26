@@ -26,7 +26,7 @@ export default function CategoryForm({ onAdd }: Props) {
       />
       <button
         type="submit"
-        className="rounded bg-blue-600 px-4 py-2 text-white hover:opacity-90"
+        className="rounded bg-green-600 px-4 py-2 text-white hover:opacity-90"
       >
         Add
       </button>

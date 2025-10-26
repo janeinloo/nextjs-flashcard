@@ -5,142 +5,140 @@ import { createClient } from "@/lib/supabase/client";
 
 type Card = {
   id: number;
-  category_id: number | null;
   question: string;
   answer: string;
 };
 
-type Props = {
-  cards: Card[];
-};
-
-export default function PlayMode({ cards }: Props) {
+export default function PlayMode() {
   const supabase = createClient();
-
-  const [shuffledCards, setShuffledCards] = useState<Card[]>([]);
+  const [cards, setCards] = useState<Card[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswer, setUserAnswer] = useState("");
-  const [feedback, setFeedback] = useState<"correct" | "incorrect" | null>(null);
-  const [gameOver, setGameOver] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [correctCount, setCorrectCount] = useState(0);
+  const [incorrectCount, setIncorrectCount] = useState(0);
+  const [showResults, setShowResults] = useState(false);
 
-  // Shuffle cards on start
   useEffect(() => {
-    setShuffledCards(shuffleArray(cards));
-  }, [cards]);
+    fetchCards();
+  }, []);
 
-  // Shuffle helper
-  const shuffleArray = (arr: Card[]) => {
-    return [...arr].sort(() => Math.random() - 0.5);
+  const fetchCards = async () => {
+    const { data } = await supabase.from("cards").select("id, question, answer");
+    if (data) {
+      setCards(data.sort(() => Math.random() - 0.5));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const currentCard = shuffledCards[currentIndex];
+
+    const currentCard = cards[currentIndex];
     if (!currentCard) return;
 
     const isCorrect =
-      userAnswer.trim().toLowerCase() === currentCard.answer.toLowerCase();
+      userAnswer.trim().toLowerCase() === currentCard.answer.trim().toLowerCase();
 
-    // Save attempt to Supabase
-    await supabase
-      .from("attempts")
-      .insert([{ card_id: currentCard.id, is_correct: isCorrect }]);
+    await supabase.from("attempts").insert({
+      card_id: currentCard.id,
+      is_correct: isCorrect,
+      attempt_at: new Date().toISOString(),
+    });
 
-    setFeedback(isCorrect ? "correct" : "incorrect");
+    if (isCorrect) {
+      setCorrectCount((prev) => prev + 1);
+      setFeedback("✅ Correct!");
+    } else {
+      setIncorrectCount((prev) => prev + 1);
+      setFeedback(`❌ Incorrect! Correct answer: ${currentCard.answer}`);
+    }
 
-    // Move to next card after 1s
-    setTimeout(() => {
-      setUserAnswer("");
-      setFeedback(null);
-      if (currentIndex + 1 < shuffledCards.length) {
-        setCurrentIndex(currentIndex + 1);
-      } else {
-        setGameOver(true);
-      }
-    }, 1000);
-  };
-
-  const handleTryAgain = () => {
-    setShuffledCards(shuffleArray(cards));
-    setCurrentIndex(0);
     setUserAnswer("");
-    setFeedback(null);
-    setGameOver(false);
+
+    if (currentIndex === cards.length - 1) {
+      setTimeout(() => setShowResults(true), 800);
+    } else {
+      setTimeout(() => {
+        setFeedback("");
+        setCurrentIndex((prev) => prev + 1);
+      }, 800);
+    }
   };
 
-  return (
-    <div className="p-4 border rounded space-y-4">
-      {!gameOver ? (
-        <>
-          <h2 className="text-xl font-bold">
-            Question {currentIndex + 1} / {shuffledCards.length}
-          </h2>
-          <p className="mb-2">{shuffledCards[currentIndex]?.question}</p>
+  const handleRestart = () => {
+    setCorrectCount(0);
+    setIncorrectCount(0);
+    setCurrentIndex(0);
+    setFeedback("");
+    setShowResults(false);
+    setUserAnswer("");
+    fetchCards();
+  };
 
-          <form onSubmit={handleSubmit} className="space-y-2">
-            <input
-              type="text"
-              value={userAnswer}
-              onChange={(e) => setUserAnswer(e.target.value)}
-              placeholder="Type your answer..."
-              className="border p-2 rounded w-full"
-            />
-            <button className="bg-blue-600 text-white px-4 py-2 rounded hover:opacity-90">
-              Submit
-            </button>
-          </form>
+  if (cards.length === 0) {
+    return <p className="text-center text-gray-500 mt-10">No cards found.</p>;
+  }
 
-          {feedback && (
-            <p
-              className={`font-semibold ${
-                feedback === "correct" ? "text-green-600" : "text-red-600"
-              }`}
-            >
-              {feedback === "correct"
-                ? "Correct!"
-                : `Incorrect! Correct answer: ${shuffledCards[currentIndex].answer}`}
-            </p>
-          )}
-        </>
-      ) : (
-        <>
-          <h2 className="text-xl font-bold">Game Over!</h2>
-          <StatsSummary cards={shuffledCards} />
+  if (showResults) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] text-center">
+        <div className="bg-white border rounded-2xl shadow-lg p-6 max-w-md">
+          <h2 className="text-2xl font-bold mb-4">Game Over 🎉</h2>
+          <p className="text-lg mb-4">
+            You got <span className="font-semibold">{correctCount}</span> correct and{" "}
+            <span className="font-semibold">{incorrectCount}</span> incorrect out of{" "}
+            {cards.length}.
+          </p>
           <button
-            onClick={handleTryAgain}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:opacity-90"
+            onClick={handleRestart}
+            className="px-6 py-2 bg-blue-600 text-white rounded hover:opacity-90"
           >
             Try Again
           </button>
-        </>
-      )}
-    </div>
-  );
-}
+        </div>
+      </div>
+    );
+  }
 
-// Component to show correct/incorrect summary
-function StatsSummary({ cards }: { cards: Card[] }) {
-  const [attempts, setAttempts] = useState<{ is_correct: boolean }[]>([]);
-  const supabase = createClient();
-
-  useEffect(() => {
-    const fetchStats = async () => {
-      const { data } = await supabase
-        .from("attempts")
-        .select("*")
-        .in("card_id", cards.map((c) => c.id));
-      setAttempts(data || []);
-    };
-    fetchStats();
-  }, [cards]);
-
-  const totalCorrect = attempts.filter((a) => a.is_correct).length;
-  const totalIncorrect = attempts.filter((a) => !a.is_correct).length;
+  const currentCard = cards[currentIndex];
 
   return (
-    <div>
-      <p>Correct: {totalCorrect}</p>
-      <p>Incorrect: {totalIncorrect}</p>
+    <div className="max-w-lg mx-auto p-6 border rounded-lg shadow mt-6">
+      <h2 className="text-xl font-semibold mb-4 text-center">Flashcard Quiz</h2>
+
+      <p className="mb-4 text-center text-gray-600">
+        Question {currentIndex + 1} of {cards.length}
+      </p>
+
+      <p className="text-lg font-medium mb-4 text-center">
+        {currentCard.question}
+      </p>
+
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <input
+          type="text"
+          value={userAnswer}
+          onChange={(e) => setUserAnswer(e.target.value)}
+          placeholder="Your answer..."
+          className="border p-2 rounded w-full"
+        />
+        <button
+          type="submit"
+          className="bg-green-600 text-white px-4 py-2 rounded hover:opacity-90 w-full"
+        >
+          Submit
+        </button>
+      </form>
+
+      {feedback && (
+        <p
+          className={`mt-3 text-center font-semibold ${
+            feedback.startsWith("✅") ? "text-green-600" : "text-red-600"
+          }`}
+        >
+          {feedback}
+        </p>
+      )}
     </div>
   );
 }
